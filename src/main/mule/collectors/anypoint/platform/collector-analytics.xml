@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+	<flow name="collector-analytics-metrics-parallel-flow" doc:id="c4b43d89-a5f8-4582-8f1a-2296b79d60c6">
+		<parallel-foreach doc:name="Parallel For Each" doc:id="180873d9-c7ee-474f-8a35-20b9e4ab73f5" collection="#[vars.environments]">
+			<choice doc:name="Choice" doc:id="2883976c-2a6e-46df-afb8-4fcec69d3996">
+				<when expression='#[payload.name != "Design"]'>					
+					<flow-ref doc:name="Set Environment Variables" doc:id="9b5d2beb-c13d-4bcb-a1c0-3df2da688ae7" name="collector-commons-set-environment-variables-flow" />
+					<flow-ref doc:name="Get Analytics Events Flow Reference" doc:id="5321ee36-8efe-4fec-98d2-377237f0f6ac" name="api-call-analytics-query-flow" />
+					<logger level="DEBUG" doc:name="Logger" doc:id="751dc74b-ffea-480c-a22a-26809cd2dedd" message="#[payload]" />
+					<set-payload value="#[output application/json --- { environment: vars.environmentName, isProduction: vars.isProduction, data: payload}]" doc:name="Aggregate metrics"
+						doc:id="f5dd4287-9163-4204-84c0-7e9ef98ae88e" />
+				</when>
+			</choice>
+		</parallel-foreach>
+		<error-handler >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="aa418448-a7c0-425e-a47c-7f7b8b2d4563" >
+				<logger level="WARN" doc:name="Logger" doc:id="ab73d101-23f6-4507-b191-df414ab68b5b" message="'Not able to get Analytics for BG:' #[vars.orgId]"/>
+				<set-variable value="#[vars.errors + error.description]" doc:name="Set Errors Variable" doc:id="9ec3896a-f9aa-4a24-93d2-bd1515587c68" variableName="errors"/>
+			</on-error-continue>
+		</error-handler>
+	</flow>
+	
+		<flow name="collector-analytics-metrics-events-parallel-flow" doc:id="9f2f8dfb-a830-435e-bcee-2e4ec4e86e12">
+		<parallel-foreach doc:name="Parallel For Each" doc:id="4e88a4f7-5ed2-45fb-8431-e378dd0f5005" collection="#[vars.environments]">
+			<choice doc:name="Choice" doc:id="9ba14d48-7e9c-48d1-9abe-8f3d3d850218">
+				<when expression='#[payload.name != "Design"]'>					
+					<flow-ref doc:name="Set Environment Variables" doc:id="5b3dff4a-8d22-444b-8cdc-89cdb39fb4c7" name="collector-commons-set-environment-variables-flow" />
+					<flow-ref doc:name="Get Analytics Events Flow Reference" doc:id="44704f1c-cd14-4951-b53c-cfcee988d630" name="api-call-analytics-events-flow" />
+					<ee:transform doc:name="setPayload" doc:id="5a299d20-c3e2-4278-9362-d5c430d95788">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+//import * from dw::core::Strings
+output application/json 
+--- 
+
+
+{ environment: vars.environmentName, isProduction: vars.isProduction, 
+	data: (payload default [] groupBy ($."API Name") mapObject (api_v,api_k) -> 
+  {api:{apiName: api_k,
+clients: ((api_v groupBy ($."Application Name") ) mapObject (client_v,client_k) -> {client:{clientName:if (isEmpty(client_k)) "_na_" else client_k,clientId: (client_v.Application)[0],
+  ip: ((client_v."Client IP" map() -> {id:$}) groupBy $.id mapObject (ip_v,ip_k) -> {ip:{consumer_ip:ip_k,count: sizeOf(ip_v)}}).*ip,
+ Browser: ((client_v."Browser" filter ($ != null)filter ($ != null) map() -> {id:$}) groupBy $.id mapObject (browser_v,browser_k) -> {browser:{browser:browser_k,count: sizeOf(browser_v)}}).*browser,
+ City: ((client_v."City" filter ($ != null) map() -> {id:$}) groupBy $.id mapObject (city_v,city_k) -> {city:{city:city_k,count: sizeOf(city_v)}}).*city,
+Country:  ((client_v."Country" filter ($ != null) map() -> {id:$}) groupBy $.id mapObject (Country_v,Country_k) -> {Country:{Country:Country_k,count: sizeOf(Country_v)}}).*Country,
+Continent: ((client_v."Continent" filter ($ != null) map() -> {id:$}) groupBy $.id mapObject (Continent_v,Continent_k) -> {Continent:{Continent:Continent_k,count: sizeOf(Continent_v)}}).*Continent,
+HardwarePlatform:((client_v."Hardware Platform" filter ($ != null) map() -> {id:$}) groupBy $.id mapObject (HardwarePlatform_v,HardwarePlatform_k) -> {HardwarePlatform:{HardwarePlatform:HardwarePlatform_k,count: sizeOf(HardwarePlatform_v)}}).*HardwarePlatform,
+Timezone:((client_v."Timezone" filter ($ != null) map() -> {id:$}) groupBy $.id mapObject (Timezone_v,Timezone_k) -> {Timezone:{Timezone:Timezone_k,count: sizeOf(Timezone_v)}}).*Timezone,
+avgRespTime: round ((sum(client_v."Response Time")/sizeOf(client_v."Response Time"))),
+errorToSuccessRatio: sizeOf((client_v."Status Code") filter !(['2','3'] contains ($ splitBy '')[0] )) ++ ":" ++ sizeOf((client_v."Status Code") filter  (['2','3'] contains ($ splitBy '')[0] )),
+totalcalls:sizeOf(client_v),
+TopErrors:  (( ((client_v."Status Code" map() -> {id:$}) groupBy $.id)  filterObject !(['2','3'] contains ($$ splitBy '')[0] ) ) mapObject () -> 
+{status: {statusCode :$$, count: sizeOf($)} }).*status orderBy -$.count ,
+PolicyViolated : sizeOf(client_v."Violated Policy Name" filter ($ != null))
+}}) .*client
+}}).*api
+}]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+				</when>
+			</choice>
+		</parallel-foreach>
+		<error-handler >
+			<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="c5739d1b-42db-485a-a054-f90312f02bd2" >
+				<logger level="WARN" doc:name="Logger" doc:id="76590312-bf20-4830-8333-d60800d733f1" message="'Not able to get Analytics for BG:' #[vars.orgId]"/>
+				<set-variable value="#[vars.errors + error.description]" doc:name="Set Errors Variable" doc:id="ea90333c-d9a4-4b03-90fb-2a0350658678" variableName="errors"/>
+			</on-error-continue>
+		</error-handler>
+	</flow>
+
+</mule>

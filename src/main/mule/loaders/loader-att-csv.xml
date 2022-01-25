@@ -1,0 +1,480 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:sharepoint="http://www.mulesoft.org/schema/mule/sharepoint"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/sharepoint http://www.mulesoft.org/schema/mule/sharepoint/current/mule-sharepoint.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd">
+	<file:config name="File_Config1" doc:name="File Config" doc:id="46571ad2-3ead-4c52-b5f9-68edb507a58b" />
+	<flow name="loader-att-csv-main-flow" doc:id="d51c6ecb-d4d7-432e-be6b-e5aafe3ffd05" >
+		<flow-ref doc:name="Aggregate Platform Metrics Flow Reference" doc:id="21ce6322-9cba-4318-9132-d8e6a5608274" name="aggregator-platform-metrics-master-flow" />
+		<choice doc:name="Choice" doc:id="5462406b-21ef-4b06-b3d9-f99805131274" >
+			<when expression="#[1 == 1]">
+				<logger level="INFO" doc:name="Logger" doc:id="12d6e9b6-5252-4299-83db-51ef49ab3776" message="#[payload]"/>
+				<ee:transform doc:name="Transform Message" doc:id="3b380e1e-e912-41c1-969b-532940a8ca2a">
+			<ee:message>
+			</ee:message>
+			<ee:variables>
+				<ee:set-variable variableName="apimConusmers"><![CDATA[%dw 2.0
+output application/csv
+var consumers=flatten (payload map ((event, eventIndex) -> ([{
+       businessGroup: event.businessGroup, 
+       apiClients: event.apiManagerMetrics.clients,
+       date: event.date
+    }])))
+---
+ if (isEmpty(consumers)) [{businessGroup: null, 
+       apiClients: null,
+       date: null}]
+ else
+  consumers
+   ]]></ee:set-variable>
+				<ee:set-variable variableName="exAPISpec"><![CDATA[%dw 2.0
+output application/csv
+var APIspecs = flatten (payload map ((event, eventIndex) -> ([{
+       businessGroup: event.businessGroup, 
+       apiSpecs: event.exchangeMetrics.apiSpecs,
+       date: event.date
+    }])))
+---
+if (isEmpty(APIspecs)) [{ 
+       businessGroup: null, 
+       apiSpecs: null,
+       date: null}]
+else
+APIspecs
+]]></ee:set-variable>
+				<ee:set-variable variableName="apimTransactions"><![CDATA[%dw 2.0
+output application/csv
+var transactions = flatten((payload map (event, eventIndex) -> {
+       value: flatten (event.apiManagerMetrics.apis..details) map (envId) -> 
+       {businessGroup: event.businessGroup, 
+       environmentName: envId.environmentName, 
+       environmentType:envId.environmentType,
+       transactions:envId.transactions,
+       date: event.date} 
+    })..value)
+---
+if (isEmpty(transactions)) [{businessGroup: null, 
+       environmentName: null, 
+       environmentType:null,
+       transactions:null,
+       date: null}]
+else
+transactions
+]]></ee:set-variable>
+						<ee:set-variable variableName="apimTransactionsApiLvl" ><![CDATA[%dw 2.0
+output application/csv
+var transactions = flatten((payload map (event, eventIndex) -> {
+       value: flatten (event.apiManagerMetrics.apis..details) map (envId) -> {
+       apis: envId.apiLvlTransactions map (api_id,api_val)-> {businessGroup: event.businessGroup, 
+       environmentName: envId.environmentName, 
+       environmentType:envId.environmentType,
+       apiName:api_id.api_name,
+       transactions:api_id.transactions} }
+    })..apis filter !(isEmpty($)) )
+---
+if (isEmpty(transactions)) [{businessGroup: null, 
+       environmentName: null, 
+       environmentType:null,
+       apiName:null,
+       transactions:null}]
+else
+transactions]]></ee:set-variable>
+						<ee:set-variable variableName="apmEventsConsumerlvl" ><![CDATA[%dw 2.0
+output application/csv
+var transactions = flatten((payload map (event, eventIndex) -> {
+       value: flatten (event.apiManagerMetrics.apis..details) map (envId) -> {
+       		apis: envId.apiAnalyticsEvents[0] map (api_id,api_val)-> {
+       			
+       			clients: api_id.clients map (client_id) -> {
+       				(data: client_id.ip map (ip_id) -> {
+       					businessGroup: event.businessGroup, 
+       					environmentName: envId.environmentName, 
+       					environmentType:envId.environmentType,
+       					apiName:api_id.apiName,
+       					consumerName:client_id.clientName,
+       					consumerMetrics:"consumer_ip",
+       					MetricsValue:ip_id.consumer_ip,
+       					transactionCount: ip_id.count
+       				}) if !(isEmpty(client_id.ip)),
+       				(data: client_id.Browser map (id) -> {
+       					businessGroup: event.businessGroup, 
+       					environmentName: envId.environmentName, 
+       					environmentType:envId.environmentType,
+       					apiName:api_id.apiName,
+       					consumerName:client_id.clientName,
+       					consumerMetrics:"Browser",
+       					MetricsValue:id.browser,
+       					transactionCount: id.count
+       				}) if !(isEmpty(client_id.Browser)),
+       				(data: client_id.City map (id) -> {
+       					businessGroup: event.businessGroup, 
+       					environmentName: envId.environmentName, 
+       					environmentType:envId.environmentType,
+       					apiName:api_id.apiName,
+       					consumerName:client_id.clientName,
+       					consumerMetrics:"City",
+       					MetricsValue:id.city,
+       					transactionCount: id.count
+       				}) if !(isEmpty(client_id.City)),
+       				(data: client_id.Country map (id) -> {
+       					businessGroup: event.businessGroup, 
+       					environmentName: envId.environmentName, 
+       					environmentType:envId.environmentType,
+       					apiName:api_id.apiName,
+       					consumerName:client_id.clientName,
+       					consumerMetrics:"Country",
+       					MetricsValue:id.Country,
+       					transactionCount: id.count
+       				}) if !(isEmpty(client_id.Country)),
+       				(data: client_id.Continent map (id) -> {
+       					businessGroup: event.businessGroup, 
+       					environmentName: envId.environmentName, 
+       					environmentType:envId.environmentType,
+       					apiName:api_id.apiName,
+       					consumerName:client_id.clientName,
+       					consumerMetrics:"Continent",
+       					MetricsValue:id.Continent,
+       					transactionCount: id.count
+       				}) if !(isEmpty(client_id.Continent)),
+       				(data: client_id.HardwarePlatform map (id) -> {
+       					businessGroup: event.businessGroup, 
+       					environmentName: envId.environmentName, 
+       					environmentType:envId.environmentType,
+       					apiName:api_id.apiName,
+       					consumerName:client_id.clientName,
+       					consumerMetrics:"HardwarePlatform",
+       					MetricsValue:id.HardwarePlatform,
+       					transactionCount: id.count
+       				}) if !(isEmpty(client_id.HardwarePlatform)),
+       				(data: client_id.Timezone map (id) -> {
+       					businessGroup: event.businessGroup, 
+       					environmentName: envId.environmentName, 
+       					environmentType:envId.environmentType,
+       					apiName:api_id.apiName,
+       					consumerName:client_id.clientName,
+       					consumerMetrics:"Timezone",
+       					MetricsValue:id.Timezone,
+       					transactionCount: id.count
+       				}) if !(isEmpty(client_id.Timezone)),
+       				data: {
+       					businessGroup: event.businessGroup, 
+       					environmentName: envId.environmentName, 
+       					environmentType:envId.environmentType,
+       					apiName:api_id.apiName,
+       					consumerName:client_id.clientName,
+       					consumerMetrics:"avgRespTime",
+       					MetricsValue:client_id.avgRespTime,
+       					transactionCount: null},
+       				data: {
+       					businessGroup: event.businessGroup, 
+       					environmentName: envId.environmentName, 
+       					environmentType:envId.environmentType,
+       					apiName:api_id.apiName,
+       					consumerName:client_id.clientName,
+       					consumerMetrics:"totalcalls",
+       					MetricsValue:client_id.totalcalls,
+       					transactionCount: null},
+       				data: {
+       					businessGroup: event.businessGroup, 
+       					environmentName: envId.environmentName, 
+       					environmentType:envId.environmentType,
+       					apiName:api_id.apiName,
+       					consumerName:client_id.clientName,
+       					consumerMetrics:"PolicyViolations",
+       					MetricsValue:client_id.PolicyViolated,
+       					transactionCount: null},
+       				data: {
+       					businessGroup: event.businessGroup, 
+       					environmentName: envId.environmentName, 
+       					environmentType:envId.environmentType,
+       					apiName:api_id.apiName,
+       					consumerName:client_id.clientName,
+       					consumerMetrics:"errorToSuccessRatio",
+       					MetricsValue:client_id.errorToSuccessRatio,
+       					transactionCount: null},
+       				(data: client_id.TopErrors map (id) -> {
+       					businessGroup: event.businessGroup, 
+       					environmentName: envId.environmentName, 
+       					environmentType:envId.environmentType,
+       					apiName:api_id.apiName,
+       					consumerName:client_id.clientName,
+       					consumerMetrics:"TopErrors",
+       					MetricsValue:id.statusCode,
+       					transactionCount: id.count
+       				}) if !(isEmpty(client_id.TopErrors)),
+       			}}
+        }
+    })..*data)
+---
+if (isEmpty(transactions)) [{businessGroup: null, 
+       					environmentName: null, 
+       					environmentType:null,
+       					apiName:null,
+       					consumerName:null,
+       					consumerMetrics:null,
+       					MetricsValue:null,
+       					transactionCount: null}]
+else
+transactions ]]></ee:set-variable>
+						<ee:set-variable variableName="VcoresBuEnv" ><![CDATA[%dw 2.0
+output application/csv
+
+var transactions=flatten((payload map (event, eventIndex) -> {
+       value: flatten (event.runtimeManagerMetrics.rtf.applications..details) default [] map (envId) -> 
+        {businessGroup: event.businessGroup, 
+       	"environment Name":envId.environmentName,
+       	"environmentType":envId.environmentType,
+       	infrastructureType: "RTF",
+        "CHvCoresTotal": null,
+       	CHavailableVcores: null,
+       	coresUsed: envId.coresReserved,
+        memoryUsed: (envId.memoryReserved as String default 0)++ 'GB'
+       } ,
+       value: flatten (event.runtimeManagerMetrics.cloudhub.applications..details) default [] map (envId) -> 
+        {businessGroup: event.businessGroup, 
+       	"environment Name":envId.environmentName,
+       	"environmentType":envId.environmentType,
+       	infrastructureType: "CloudHub",
+       	"CHvCoresTotal": (if (envId.environmentType == 'Production') event.runtimeManagerMetrics.cloudhub.applications.production.vcoresTotal 
+       	              else event.runtimeManagerMetrics.cloudhub.applications.sandbox.vcoresTotal),
+       	CHavailableVcores: (if (envId.environmentType == 'Production') event.runtimeManagerMetrics.cloudhub.applications.sandbox.vcoresAvailable 
+       	              else event.runtimeManagerMetrics.cloudhub.applications.sandbox.vcoresAvailable),
+       	
+       	coresUsed: envId.vcoresUsed,
+        memoryUsed: null
+       } 
+    })..value)
+---
+if (isEmpty(transactions)) [{soruce:"",
+       businessGroup:"",
+       "environment Name":"",
+       	"environmentType":"",
+       	infrastructureType: "CloudHub",
+       	"CHvCoresTotal":"",
+       	CHavailableVcores:"",       	
+       	coresUsed:"",
+        memoryUsed:""
+}]
+else transactions]]></ee:set-variable>
+						<ee:set-variable variableName="apimPoliciesPerApi" ><![CDATA[%dw 2.0
+output application/csv
+var transactions = flatten((payload map (event, eventIndex) -> {
+       value: flatten (event.apiManagerMetrics.apis..details) map (envId) -> {
+       		apis: envId.apiLvlMetrics.ApiLvlpolicies map (api_id,api_val)-> {
+       			policy: api_id.ApiPolicies default [''] map (policyId,policyVal) -> {
+       				    businessGroup: event.businessGroup, 
+       					environmentName: envId.environmentName, 
+       					environmentType:envId.environmentType,
+       					apiName:api_id.apiName,
+       					policyName: policyId}
+       			}	
+       	    }
+       	})..policy)
+---
+if (isEmpty(transactions)) [{businessGroup: null, 
+       					environmentName: null, 
+       					environmentType:null,
+       					apiName:null,
+       					policyName:null
+       					}]
+else
+transactions]]></ee:set-variable>
+						<ee:set-variable variableName="apimConsumersPerApi" ><![CDATA[%dw 2.0
+output application/csv
+var transactions = flatten((payload map (event, eventIndex) -> {
+       value: flatten (event.apiManagerMetrics.apis..details) map (envId) -> {
+       		apis: envId.apiLvlMetrics.ApiLvlcontracts map (api_id,api_val)-> {
+       					businessGroup: event.businessGroup, 
+       					environmentName: envId.environmentName, 
+       					environmentType:envId.environmentType,
+       					apiName:api_id.assetId,
+       					usersCount:sum(api_id.instancses.activeContractsCount),
+       					
+       				}
+       				
+       				
+       			}})..apis)
+---
+if (isEmpty(transactions)) [{businessGroup: null, 
+       					environmentName: null, 
+       					environmentType:null,
+       					apiName:null,
+       					usersCount:null
+       					}]
+else
+transactions]]></ee:set-variable>
+						<ee:set-variable variableName="apimApiInstances" ><![CDATA[%dw 2.0
+output application/csv
+var transactions = flatten((payload map (event, eventIndex) -> {
+       value: flatten (event.apiManagerMetrics.apis..details) map (envId) -> {
+       		apis: envId.apiLvlMetrics.ApiLvlcontracts map (api_id,api_val)-> {
+       			apisInstances: api_id.instancses map (apiinst_id,apiinst_val)-> {
+       					businessGroup: event.businessGroup, 
+       					environmentName: envId.environmentName, 
+       					environmentType:envId.environmentType,
+       					exchangeAssetName:api_id.exchangeAssetName,
+       					exchangeAssetId:api_id.assetId,
+       					instanceAssetId: apiinst_id.instanceId,
+       					instanceLable:apiinst_id.instanceLabel,
+       					isPublic: apiinst_id.isPublic,
+       					assetVersion:apiinst_id.instanceAssetVersion
+       					}
+       					
+       				}
+       				
+       				
+       			}})..apisInstances)
+---
+if (isEmpty(transactions)) [{businessGroup: null, 
+       					environmentName: null, 
+       					environmentType:null,
+       					exchangeAssetName:null,
+       					exchangeAssetId:null,
+       					instanceAssetId: null,
+       					instanceLable:null,
+       					isPublic: null,
+       					assetVersion:null
+       					}]
+else
+transactions]]></ee:set-variable>
+						<ee:set-variable variableName="rtfApplications" ><![CDATA[%dw 2.0
+output application/csv
+
+var applicationsList=flatten((payload map (event, eventIndex) -> {
+       value: flatten (event.runtimeManagerMetrics.rtf.applications..details) default [] map (envId) -> 
+       {apps: envId.applicationsNames default [] map (appId) -> {soruce:"Mule",
+       	"API Name":appId,
+       	Tenant: envId.environmentName,
+       "MOTS ID":  (envId.environmentName splitBy '-')[1]
+       }
+       } 
+    })..apps)
+---
+if (isEmpty(applicationsList)) [{soruce:"",
+       	"API Name":"",
+       	Tenant: "",
+       "MOTS ID": ""
+}]
+else applicationsList]]></ee:set-variable>
+						<ee:set-variable variableName="rtfvCoreUsageByApi" ><![CDATA[%dw 2.0
+output application/csv
+
+var applicationsList=flatten((payload map (event, eventIndex) -> {
+       value: flatten (event.runtimeManagerMetrics.rtf.applications..details) default [] map (envId) -> 
+        
+       {apps: envId.applicationsCores default [] map (appId) -> {
+       	BGName:  event.businessGroup,
+       	environmentName: envId.environmentName,       	
+       	"API Name":appId.apiName,       	
+        "CoreUsage":  appId.coresusedByAPI
+       }
+       } 
+    })..apps)
+---
+if (isEmpty(applicationsList)) [{BGName:"",
+       	"environmentName":"",
+       	"API Name":"",
+       	Tenant: "",
+       "CoreUsage": ""
+}]
+else applicationsList]]></ee:set-variable>
+						<ee:set-variable variableName="ActiveUsersPerApi" ><![CDATA[%dw 2.0
+output application/csv
+var transactions = flatten((payload map (event, eventIndex) -> {
+       value: flatten (event.apiManagerMetrics.apis..details) map (envId) -> {
+       		apis: envId.apiAnalyticsEvents[0] map (api_id,api_val)-> {
+       			
+       			clients: api_id.clients map (client_id) -> {
+       				data: {
+       					businessGroup: event.businessGroup, 
+       					environmentName: envId.environmentName, 
+       					environmentType:envId.environmentType,
+       					apiName:api_id.apiName,
+       					consumerName:client_id.clientName
+       					
+       				}
+       				
+       			}}
+        }
+    })..data)
+---
+if (isEmpty(transactions)) [{businessGroup: null, 
+       					environmentName: null, 
+       					environmentType:null,
+       					apiName:null,
+       					consumerName:null
+       					}]
+else
+transactions]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+				<scatter-gather doc:name="Scatter-Gather" doc:id="0a5b7b0a-a755-4024-9e3c-94f8c1e9bdf5">
+			<route>
+				<file:write doc:name="clientApplications" doc:id="5e019eb7-ceae-4c60-93c2-5b94c675f235" config-ref="File_Config1" path='#["/Users/kvakati/Documents/projects/ATT/CTO/clientApplications-" ++ (now() as String {format: "YYYY-MM-dd"}) ++ ".json"]'>
+					<file:content><![CDATA[#[vars.apimConusmers]]]></file:content>
+				</file:write>
+			</route>
+			<route>
+				<file:write doc:name="exchangeApiSpecifications" doc:id="fc843535-5606-4ae1-b3e7-f586b00fc32e" config-ref="File_Config1" path='#["/Users/kvakati/Documents/projects/ATT/CTO/exchangeApiSpecs-" ++ (now() as String {format: "YYYY-MM-dd"}) ++ ".json"]'>
+			        <file:content><![CDATA[#[vars.exAPISpec]]]></file:content>
+			    </file:write>
+			</route>
+			<route>
+				<file:write doc:name="transactionVolume" doc:id="bb19fac7-0306-49ef-aba7-4ab264a2f373" config-ref="File_Config1" path='#["/Users/kvakati/Documents/projects/ATT/CTO/transactionVolume-" ++ (now() as String {format: "YYYY-MM-dd"}) ++ ".json"]'>
+			        <file:content><![CDATA[#[vars.apimTransactions]]]></file:content>
+			    </file:write>
+			</route>
+			<route>
+				<file:write doc:name="rtfApplications" doc:id="72c332b1-dfc1-4658-adca-bdeb9fca018e" config-ref="File_Config1" path='#["/Users/kvakati/Documents/projects/ATT/CTO/rtfApplications-" ++ (now() as String {format: "YYYY-MM-dd"}) ++ ".json"]'>
+			        <file:content><![CDATA[#[vars.rtfApplications]]]></file:content>
+			    </file:write>
+			</route>
+					<route >
+						<file:write doc:name="transaction volume API lvl" doc:id="cff514a2-3d5b-4d02-8414-4935e6d14937" path='#["/Users/kvakati/Documents/projects/ATT/CTO/transactionsApiLvl-" ++ (now() as String {format: "YYYY-MM-dd"}) ++ ".json"]'>
+							<file:content ><![CDATA[#[vars.apimTransactionsApiLvl]]]></file:content>
+						</file:write>
+					</route>
+					<route >
+						<file:write doc:name="API Manager Events API Consumer lvl" doc:id="d98e20e6-89bc-439a-b9cb-a5d4fbed8704" path='#["/Users/kvakati/Documents/projects/ATT/CTO/apiDemographics-" ++ (now() as String {format: "YYYY-MM-dd"}) ++ ".json"]'>
+							<file:content ><![CDATA[#[vars.apmEventsConsumerlvl]]]></file:content>
+						</file:write>
+					</route>
+					<route >
+						<file:write doc:name="rtf Vcore usage by BU and Env" doc:id="b72d1af5-fc63-4b1a-9650-01db27e8c534" config-ref="File_Config" path='#["/Users/kvakati/Documents/projects/ATT/CTO/VcoresBuEnv-" ++ (now() as String {format: "YYYY-MM-dd"}) ++ ".json"]'>
+							<file:content ><![CDATA[#[vars.VcoresBuEnv]]]></file:content>
+						</file:write>
+					</route>
+					<route >
+						<file:write doc:name="rtf Vcore usage by API" doc:id="2203d0eb-9416-4e49-89b9-42689caad8be" config-ref="File_Config" path='#["/Users/kvakati/Documents/projects/ATT/CTO/rtfvCoreUsageByApi-" ++ (now() as String {format: "YYYY-MM-dd"}) ++ ".json"]'>
+							<file:content><![CDATA[#[vars.rtfvCoreUsageByApi]]]></file:content>
+						</file:write>
+					</route>
+					<route >
+						<file:write doc:name="Api Instances" doc:id="a7046ad8-0735-4972-bc45-94ad6ba890c7" config-ref="File_Config" path='#["/Users/kvakati/Documents/projects/ATT/CTO/ApiInstances-" ++ (now() as String {format: "YYYY-MM-dd"}) ++ ".json"]'>
+							<file:content><![CDATA[#[vars.apimApiInstances]]]></file:content>
+						</file:write>
+					</route>
+					<route >
+						<file:write doc:name="# of Consumers Per Api" doc:id="9f12214f-5f09-4f9c-bd39-2e5cc5b82db9" config-ref="File_Config" path='#["/Users/kvakati/Documents/projects/ATT/CTO/ConsumersPerApi-" ++ (now() as String {format: "YYYY-MM-dd"}) ++ ".json"]'>
+							<file:content><![CDATA[#[vars.apimConsumersPerApi]]]></file:content>
+						</file:write>
+					</route>
+					<route >
+						<file:write doc:name="Policies Per Api" doc:id="4dad2946-7363-4903-9bf1-a272ab4de873" config-ref="File_Config" path='#["/Users/kvakati/Documents/projects/ATT/CTO/PoliciesPerApi-" ++ (now() as String {format: "YYYY-MM-dd"}) ++ ".json"]'>
+							<file:content><![CDATA[#[vars.apimPoliciesPerApi]]]></file:content>
+						</file:write>
+					</route>
+					<route >
+						<file:write doc:name="Active Consumers Per Api" doc:id="8e779303-7e9a-439b-8854-6d0d4dbb48e4" config-ref="File_Config" path='#["/Users/kvakati/Documents/projects/ATT/CTO/ActiveConsumersPerApi-" ++ (now() as String {format: "YYYY-MM-dd"}) ++ ".json"]'>
+							<file:content><![CDATA[#[vars.ActiveUsersPerApi]]]></file:content>
+						</file:write>
+					</route>
+		</scatter-gather>
+			</when>
+		</choice>
+		<set-payload value="'Files created'" doc:name="Set Payload" doc:id="6901b643-ea06-4c24-a1d6-aebe4963b423" />
+	</flow>
+</mule>
